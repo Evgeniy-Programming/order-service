@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Order Viewer</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: auto; padding: 20px; }
+        input { width: 300px; padding: 5px; }
+        button { padding: 5px 10px; }
+        pre { background-color: #f4f4f4; padding: 15px; border-radius: 5px; white-space: pre-wrap; word-break: break-all; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Find Order by ID</h1>
+    <input type="text" id="orderUidInput" placeholder="Enter Order UID" value="b563feb7b2b84b6test">
+    <button id="findButton">Find</button>
+    <div id="result"></div>
+
+    <script>
+        const input = document.getElementById('orderUidInput');
+        const button = document.getElementById('findButton');
+        const resultDiv = document.getElementById('result');
+
+        async function findOrder() {
+            const uid = input.value.trim();
+            if (!uid) {
+                resultDiv.innerHTML = `<p class="error">Please enter an Order UID.</p>`;
+                return;
+            }
+            resultDiv.innerHTML = '<p>Loading...</p>';
+            try {
+                const response = await fetch(`http://localhost:8081/order/${uid}`);
+                if (response.status === 404) { throw new Error('Order not found'); }
+                if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
+                const data = await response.json();
+                resultDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            }
+        }
+        button.addEventListener('click', findOrder);
+    </script>
+</body>
+</html>
