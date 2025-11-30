@@ -5,47 +5,70 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/Evgeniy-Programming/golang/internal/models"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/Evgeniy-Programming/golang/internal/domain"
 )
 
-type OrderGetter interface {
-	Get(uid string) (models.Order, bool)
-}
-
 type APIServer struct {
-	addr  string
-	cache OrderGetter
+	addr    string
+	service domain.OrderService //зависит от интерфейса
+	router  *chi.Mux
 }
 
-func NewAPIServer(addr string, cache OrderGetter) *APIServer {
-	return &APIServer{addr: addr, cache: cache}
+func NewAPIServer(addr string, service domain.OrderService) *APIServer {
+	router := chi.NewRouter()
+	server := &APIServer{
+		addr:    addr,
+		service: service,
+		router:  router,
+	}
+
+	server.setupRoutes()
+
+	return server
+}
+
+func (s *APIServer) setupRoutes() {
+	s.router.Use(middleware.Logger)
+	s.router.Use(middleware.Recoverer)
+
+	//роут получения заказа
+	s.router.Get("/order/{orderUID}", s.getOrderHandler)
+	s.router.Handle("/*", http.FileServer(http.Dir("./web/static")))
 }
 
 func (s *APIServer) Start() error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/order/", s.getOrderHandler)
-	mux.Handle("/", http.FileServer(http.Dir("./web/static")))
-
 	log.Printf("Starting HTTP server on %s", s.addr)
-	return http.ListenAndServe(s.addr, mux)
+	return http.ListenAndServe(s.addr, s.router)
 }
 
 func (s *APIServer) getOrderHandler(w http.ResponseWriter, r *http.Request) {
-	uid := r.URL.Path[len("/order/"):]
+	uid := chi.URLParam(r, "orderUID")
 	if uid == "" {
-		http.Error(w, "Order UID is required", http.StatusBadRequest)
+		s.errorResponse(w, http.StatusBadRequest, "Order UID is required")
 		return
 	}
 
-	order, found := s.cache.Get(uid)
-	if !found {
-		http.Error(w, "Order not found", http.StatusNotFound)
+	order, err := s.service.GetOrderByUID(r.Context(), uid)
+	if err != nil {
+		s.errorResponse(w, http.StatusNotFound, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*") // Для простоты разработки
-	if err := json.NewEncoder(w).Encode(order); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	s.jsonResponse(w, http.StatusOK, order)
+}
+
+func (s *APIServer) jsonResponse(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("ERROR: failed to encode json response: %v", err)
 	}
+}
+
+func (s *APIServer) errorResponse(w http.ResponseWriter, status int, message string) {
+	s.jsonResponse(w, status, map[string]string{"error": message})
 }
